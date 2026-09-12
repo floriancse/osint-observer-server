@@ -19,8 +19,8 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
     """
     directional_keywords = [
         'Middle East',
-        'Eastern', 'Northern', 'Western', 'Southern', 
-        'North', 'South', 'East', 'West'
+        'eastern', 'northern', 'western', 'southern',
+        'north', 'south', 'east', 'west', 'central', 'northeast', 'northwest', 'southeast', 'southwest'
     ]
 
     directional_exceptions = [
@@ -42,10 +42,12 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
         'north waziristan, pakistan',
         'north kordofan, sudan',
         'north kivu, democratic republic of the congo',
+        'south kivu, democratic republic of the congo',
         'south sulawesi, indonesia',
         'south darfur, sudan',
         'west darfur, sudan',
-        'west papua, indonesia'
+        'west papua, indonesia',
+        'central sudan, sudan'
     ]
 
     if not q:
@@ -105,5 +107,5 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
 
 
 if __name__ == "__main__":
-    result = nominatim_geolocation_closest("West Darfur, Sudan",  15.28, 24.14)
+    result = nominatim_geolocation_closest("Southern Saudi Arabia, Saudi Arabia",  15.0, 42.0)
     print(result)

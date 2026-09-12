@@ -6,6 +6,7 @@ OSINT event collection and geolocation script
 
 from builtins import int
 
+import requests
 import psycopg2
 import time
 from rss_to_json import parse_to_json
@@ -22,7 +23,9 @@ from llm_insert_topic import insert_topics
 from llm_daily_summary import summarize_from_db
 from llm_generate_trending_keywords import build_keywords
 from location_correction import apply_correction
+import subprocess
 import token_tracker
+import time
 load_dotenv()
 
 # ==============================================================================
@@ -37,6 +40,22 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD"),
     "sslmode":  os.getenv("DB_SSLMODE", "disable"),
 }
+
+LLAMA_SERVER_PORT = 8081
+LLAMA_SERVER_CMD = [
+    "llama-server",
+    "-hf", "unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL",
+    "--port", str(LLAMA_SERVER_PORT),
+    "-ngl", "999",
+    "--n-cpu-moe", "20",
+    "--ctx-size", "16000",
+    "-fa", "on",
+    "--cache-type-k", "q8_0",
+    "--cache-type-v", "q8_0",
+    "--reasoning", "off",
+    "--no-mmproj"
+]
+LLAMA_SERVER_STARTUP_TIMEOUT = 300  
 
 SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
@@ -121,9 +140,45 @@ def get_db_connection():
     )
 
 
+def start_llama_server():
+    """Starts llama-server in the background and waits until it's ready to
+    accept requests (model fully loaded), or raises after the timeout."""
+
+    # Skip if a server is already running on that port
+    health_check = subprocess.run(
+        ["lsof", "-ti", f":{LLAMA_SERVER_PORT}"],
+        capture_output=True, text=True
+    )
+    if health_check.stdout.strip():
+        print(f"Serveur llama.cpp déjà actif sur le port {LLAMA_SERVER_PORT}, réutilisation.")
+        return None
+
+    print("Démarrage du serveur llama.cpp...")
+    process = subprocess.Popen(
+        LLAMA_SERVER_CMD,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    start_time = time.time()
+    while time.time() - start_time < LLAMA_SERVER_STARTUP_TIMEOUT:
+        try:
+            resp = requests.get(f"http://localhost:{LLAMA_SERVER_PORT}/health", timeout=2)
+            if resp.status_code == 200:
+                print(f"Serveur llama.cpp prêt ({time.time() - start_time:.0f}s).")
+                return process
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2)
+
+    process.kill()
+    raise RuntimeError(f"llama-server n'a pas démarré dans les {LLAMA_SERVER_STARTUP_TIMEOUT}s impartis.")
+
 # ==============================================================================
 # MAIN SCRIPT
 # ==============================================================================
+
+llama_process = start_llama_server()
 
 conn = get_db_connection()
 cur = conn.cursor()
@@ -264,5 +319,26 @@ conn.commit()
 
 cur.close()
 conn.close()
+
+# Stop the local llama.cpp server (llama-server) to free VRAM once processing is done
+try:
+    if llama_process is not None:
+        llama_process.terminate()
+        llama_process.wait(timeout=30)
+        print("Serveur llama.cpp arrêté (process démarré par ce script).")
+    else:
+        # We didn't start it (was already running) — stop it by port instead
+        result = subprocess.run(
+            ["lsof", "-ti", f":{LLAMA_SERVER_PORT}"],
+            capture_output=True, text=True
+        )
+        pids = [pid for pid in result.stdout.strip().splitlines() if pid]
+        if pids:
+            subprocess.run(["kill", "-15", *pids])
+            print(f"Serveur llama.cpp arrêté (port {LLAMA_SERVER_PORT}, PID {', '.join(pids)})")
+        else:
+            print(f"Aucun serveur llama.cpp trouvé sur le port {LLAMA_SERVER_PORT}")
+except Exception as e:
+    print("Impossible de stopper llama-server :", e)
 
 print(token_tracker.summary())

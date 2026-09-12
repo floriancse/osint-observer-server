@@ -18,10 +18,7 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD"),
 }
 
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="",
-)
+client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv("osint-observer-api-key"))
 
 def build_system_prompt() -> str:
     today_str = datetime.today().strftime('%Y-%m-%d')
@@ -79,15 +76,15 @@ def get_db_connection():
 def _call_llm(user_content: str) -> dict | None:
     try:
         response = client.chat.completions.create(
-            model="gemma-4-26B-A4B",
+            model="deepseek-flash",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
-            temperature=0,
-            top_p=0.8,
-            max_tokens=400,
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
+            temperature=0.0,
         )
         track(response)
         raw = response.choices[0].message.content

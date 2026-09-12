@@ -78,10 +78,7 @@ WHERE
 	TARGET = 'Taliban';
 """
 
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="",
-)
+client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv("osint-observer-api-key"))
 
 # Closed list of allowed weapon types
 WEAPON_TYPES = [
@@ -325,7 +322,7 @@ def sanitize_objective_type(value: str | None) -> str | None:
 # groupes/armes) coûte le même prix qu'il traite 1 ou N événements : plus ce chiffre
 # est haut, moins on paie de fois ce prompt. 10 reste prudent ici car la tâche a 5
 # champs et des règles fines par événement (contrairement à une simple catégorisation).
-BATCH_SIZE = 3
+BATCH_SIZE = 20
 
 
 def chunked(items: list, size: int):
@@ -342,12 +339,14 @@ def extract_quadruplets_batch(batch: list[tuple[str, str]], countries: list[str]
 
     try:
         response = client.chat.completions.create(
-            model="gemma-4-26B-A4B",
+            model="deepseek-flash",
             messages=[
                 {"role": "system", "content": build_system_prompt(countries)},
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
             temperature=0.0,
         )
         track(response)

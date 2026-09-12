@@ -8,16 +8,18 @@ from openai import OpenAI
 from datetime import datetime
 from token_tracker import track
 import token_tracker
+from dotenv import load_dotenv
+import os
 
-client = OpenAI(base_url="http://localhost:8081/v1", api_key="")
+load_dotenv()
+client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv("osint-observer-api-key"))
 
 # Nombre de tweets envoyés par appel LLM dans le mode batch. Le prompt système
 # (règles + schéma) coûte le même prix qu'il traite 1 ou N tweets : plus ce
 # chiffre est haut, moins on paie de fois ce prompt. On reste prudent (8) car
 # chaque tweet peut produire plusieurs événements avec un JSON de sortie
 # verbeux, et le serveur local tourne avec --ctx-size 8192 seulement.
-BATCH_SIZE = 5
-
+BATCH_SIZE = 16
 RULES_BODY = """Extract concrete geopolitical events from tweets.
  
 Return {"events": []} ONLY if: no concrete event/action is described (pure metadata, single words, retweet headers), OR no actor can be identified, OR the content is satire/a joke/a question with no factual claim.
@@ -151,7 +153,7 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     principale de feed.py utilise désormais extract_events_and_geoloc_batch."""
     try:
         response = client.chat.completions.create(
-            model="gemma-4-26B-A4B",
+            model="deepseek-flash",
             messages=[
                 {"role": "system", "content": build_system_prompt(batch=False)},
                 {
@@ -163,6 +165,8 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
                 },
             ],
             response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
             temperature=0.0,
         )
         track(response)
@@ -195,7 +199,7 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
 
     try:
         response = client.chat.completions.create(
-            model="gemma-4-26B-A4B",
+            model="deepseek-flash",
             messages=[
                 {"role": "system", "content": build_system_prompt(batch=True)},
                 {
@@ -207,6 +211,8 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
                 },
             ],
             response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
             temperature=0.0,
         )
         track(response)
@@ -234,13 +240,6 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
 
 if __name__ == "__main__":
     print(extract_events_and_geoloc("""
-BREAKING: The IRGC Aerospace Force has just launched three Khorramshahr-3 or 4 ballistic missiles from its Al-Qadir ballistic missile base in Yazd, central Iran, toward a U.S. military base somewhere in Jordan.
-
-These ballistic missiles are equipped with cluster munitions and can present a particularly difficult interception challenge for the U.S. Army’s Patriot PAC-3 air-defense systems.
-
-Their cluster-munition payloads can disperse submunitions across a wide area, potentially damaging multiple aircraft parked in the open on the aprons and ramps of an air base.
-
-However, I doubt that many valuable aircraft remain at the targeted base, as the U.S. military has most likely evacuated or dispersed them in anticipation of further Iranian ballistic-missile attacks.
-
+Saudi air defenses intercepted an Ansar Allah-launched drone over southern Saudi Arabia after it was launched from Yemen.
 """))
     print(token_tracker.summary())

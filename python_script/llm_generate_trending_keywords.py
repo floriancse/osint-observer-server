@@ -30,10 +30,7 @@ def get_db_connection():
     )
 
 
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="",
-)
+client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv("osint-observer-api-key"))
 
 SQL_GET_EVENTS = """
 SELECT
@@ -47,6 +44,8 @@ WHERE
     AND (T.IS_DELAYED = 'false' OR T.IS_DELAYED IS NULL)
     AND NOT (T.CONFLICT_TYPOLOGY = 'MIL' AND T.NOMINATIM_QUERY NOT LIKE '%,%')
     AND IMPORTANCE_SCORE >= 3
+	AND CONFLICT_TYPOLOGY = 'MIL'
+    AND LOCATION_ACCURACY != 'medium'
 """
 
 # NOTE: schema attendu désormais :
@@ -184,14 +183,15 @@ Output JSON format strictly:
 def _call_llm(user_content: str) -> dict | None:
 
     response = client.chat.completions.create(
-        model="gemma-4-26B-A4B",
+        model="deepseek-flash",
         messages=[
             {"role": "system", "content": build_system_prompt()},
             {"role": "user", "content": user_content},
         ],
-        response_format={"type": "json_object"},
-        temperature=0,
-        top_p=0.8,
+            response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
+            temperature=0.0,
     )
     track(response)
     raw = response.choices[0].message.content
@@ -273,3 +273,4 @@ def build_keywords(days: int = 2) -> dict:
 
 if __name__ == "__main__":
     result = build_keywords()
+    print(token_tracker.summary())

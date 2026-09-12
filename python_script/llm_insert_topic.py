@@ -19,7 +19,7 @@ DB_CONFIG = {
 # topics) coûte le même prix qu'il traite 1 ou 20 événements : plus ce chiffre
 # est haut, moins on paie de fois ce prompt. 20 reste raisonnable pour ne pas
 # risquer de tronquer la réponse JSON (max_tokens) ni la fenêtre de contexte.
-BATCH_SIZE = 10
+BATCH_SIZE = 20
 
 def get_db_connection():
     return psycopg2.connect(
@@ -31,10 +31,7 @@ def get_db_connection():
     )
 
 
-client = OpenAI(
-    base_url="http://localhost:8081/v1",
-    api_key="",
-)
+client = OpenAI(base_url="https://api.deepseek.com", api_key=os.getenv("osint-observer-api-key"))
 
 conn = get_db_connection()
 cur = conn.cursor()
@@ -117,13 +114,15 @@ def extract_topics_batch(batch: list[tuple[str, str]]) -> dict[str, str | None]:
     )
 
     response = client.chat.completions.create(
-        model="gemma-4-26B-A4B",
+        model="deepseek-flash",
         messages=[
             {"role": "system", "content": build_system_prompt(topic_dict)},
             {"role": "user", "content": user_content},
         ],
-        response_format={"type": "json_object"},
-        temperature=0.0,
+            response_format={"type": "json_object"},
+            extra_body={"thinking": {"type": "disabled"}},
+            reasoning_effort="low",
+            temperature=0.0,
     )
     track(response)
     raw = response.choices[0].message.content.strip()

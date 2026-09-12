@@ -22,5 +22,5 @@ def apply_correction(location):
 			return [lat, long]
 
 if __name__ == "__main__":
-    result = apply_correction("Eastern Pacific")
+    result = apply_correction("Eastern Ukraine, Ukraine")
     print(result)
