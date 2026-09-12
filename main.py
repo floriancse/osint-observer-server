@@ -77,6 +77,7 @@ app.add_middleware(
         "http://localhost:5500",
         "http://localhost:3000",
         "https://floriancse.github.io",
+        "http://135.125.101.174:3000",
     ],
     allow_credentials=False,
     allow_methods=["*"],
