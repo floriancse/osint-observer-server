@@ -2,7 +2,6 @@ from openai import OpenAI
 import psycopg2
 import os
 import json
-import argparse
 from dotenv import load_dotenv
 from datetime import datetime
 from token_tracker import track
@@ -127,22 +126,40 @@ SQL_GET_EVENTS = """
 SELECT SUMMARY_TEXT, FK_TOPIC, CREATED_AT::DATE
 FROM TWEETS
 WHERE
-    CREATED_AT::DATE = CURRENT_DATE - %s
+    CREATED_AT::DATE = CURRENT_DATE - 1
     AND SUMMARY_TEXT IS NOT NULL
     AND FK_TOPIC IS NOT NULL
     AND IMPORTANCE_SCORE >= 4
     AND IS_DUPLICATE = 'false' 
 """
 
+SQL_SUMMARY_EXISTS = """
+SELECT 1
+FROM TOPIC_SUMMARIES
+WHERE FK_TOPIC = %s AND CREATED_AT = %s
+LIMIT 1
+"""
+
+
+def _summary_exists(cur, topic_id, date_label) -> bool:
+    cur.execute(SQL_SUMMARY_EXISTS, (topic_id, date_label))
+    return cur.fetchone() is not None
+
 
 def _process_events(events_dict: dict[int, list[str]], date_label, cur=None, conn=None):
     """
     Process a {topic_id: [texts]} dict.
-    - If cur/conn provided → write to DB.
+    - If cur/conn provided → write to DB, and each topic is checked
+      individually: if a summary already exists for (topic_id, date_label)
+      it is skipped (no LLM call); otherwise it is created.
     - Always returns a list of result dicts for inspection.
     """
     results = []
     for topic_id, texts in events_dict.items():
+        if cur and _summary_exists(cur, topic_id, date_label):
+            print(f"[SKIP] Topic {topic_id} already has a summary for {date_label}")
+            continue
+
         combined = "\n".join(texts)
         result = _call_llm(combined)
 
@@ -172,26 +189,34 @@ def _process_events(events_dict: dict[int, list[str]], date_label, cur=None, con
 
 
 def summarize_from_db():
-    """Original mode: fetch events from DB, write summaries back to DB."""
+    """
+    Deferred mode: process only the previous day (day_offset=1 by default).
+    Topics that already have a summary stored for that date are skipped
+    (no LLM call), so re-running the script is idempotent/cheap.
+    """
     conn = get_db_connection()
     cur = conn.cursor()
 
-    for i in range(1):
-        print(f"[DB] Processing day offset: {i}")
-        cur.execute(SQL_GET_EVENTS, (i,))
-        rows = cur.fetchall()
+    print(f"[DB] Processing day offset: 1")
+    cur.execute(SQL_GET_EVENTS)
+    rows = cur.fetchall()
 
-        events_dict: dict[int, list[str]] = {}
-        date_label = None
-        for text, topic_id, date in rows:
-            events_dict.setdefault(topic_id, []).append(text)
-            if date_label is None:
-                date_label = date
-
+    events_dict: dict[int, list[str]] = {}
+    date_label = None
+    for text, topic_id, date in rows:
+        events_dict.setdefault(topic_id, []).append(text)
         if date_label is None:
-            from datetime import date as dt_date, timedelta
-            date_label = dt_date.today() - timedelta(days=i)
+            date_label = date
 
+    if date_label is None:
+        from datetime import date as dt_date, timedelta
+        date_label = dt_date.today() - timedelta(days=1)
+
+    if not events_dict:
+        print(f"[DB] No eligible events found for {date_label}.")
+    else:
+        # Pour chaque topic : si un résumé existe déjà pour (topic_id, date_label)
+        # on skip, sinon on crée le résumé via le LLM (voir _process_events).
         _process_events(events_dict, date_label, cur=cur, conn=conn)
 
     cur.close()
